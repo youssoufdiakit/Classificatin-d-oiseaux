@@ -1,0 +1,374 @@
+---
+title: "Classsification bird"
+author: "Diakite"
+date: "2025-04-29"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r }
+library(factoextra)
+library(dplyr)
+library(tidyverse)
+library(FactoMineR)
+library(cowplot)
+library(cluster)
+library(NbClust)
+
+
+```
+
+```{r }
+bird <- read.csv("bird.csv" , sep = "," , header = TRUE)
+bird
+summary(bird)
+sum(is.na(bird))
+
+
+```
+
+notre base de donnée contient 15 valeurs manquants ,et le summary nous montre qu'il y'a une variance importante et des valeurs aberrantes . Par exemple pour la longueur de ulna nous avons le max qui est de 422 qui est trop éloigné de la moyenne qui est de 64.
+
+```{r}
+which(!complete.cases(bird))           # Donne les indices des lignes incomplètes
+bird[!complete.cases(bird), ]          # Affiche les lignes avec des NA
+
+bird = na.omit(bird)                   # Supprime les lignes avec NA
+birdoutype <- select(bird, -c("id", "type"))
+typeof(birdoutype)
+sum(is.na(bird))                       # Vérifie qu’il n’y a plus de NA → devrait retourner 0
+sum(is.na(birdoutype))                 # Idem
+by(bird[, -c(1, 12)], bird$type, boxplot)
+
+
+```
+
+les boites à moustache , nous montre plusieurs valeurs aberrantes pour chaque variable en fonction du type d'oiseaux. Les valeurs manquantes se situent seulement sur 7 observations , nous décidons de les supprimer. Donc au lieu de 420 observations , nous allons faire notre etudes sur une base de 413 observation , ce qui est largement suffisant pour notre études
+
+## ACP
+
+L'analyse en composante principale sera utilisée pour explorer la structure sous-jacente des données et de mettre encore un peu plus en évidence les relations entre les variables et individus. De plus ça vous ne permettre de reduire la dimension des données afin de donner le meme poids à chaque variable
+
+```{r}
+# Étape 1 : Standardiser les données
+bird_scaled <- scale(birdoutype)
+
+
+# Étape 2 : Réaliser l'ACP
+acp <- PCA(bird_scaled, graph = FALSE)
+
+coords <- acp$ind$coord[, 1:2]  # On prend les axes 1 à 4
+
+# Étape 3 : Visualiser la variance expliquée (scree plot)
+fviz_eig(acp, addlabels = TRUE, ylim = c(0, 50))
+
+# Étape 4 : Visualisation des individus selon les deux premières composantes
+fviz_pca_ind(acp,
+             geom = "point",
+             habillage = as.factor(bird$type),  # bien s'assurer que c’est un facteur
+             palette = "jco",
+             addEllipses = TRUE,
+             ellipse.level = 0.95,
+             repel = TRUE)
+# Étape 5 : Visualisation des variables (les contributions)
+fviz_pca_var(acp, col.var = "contrib",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE)
+
+fviz_pca_var(acp,
+             axes = c(3, 4),
+             col.var = "contrib",       # Colorier selon la contribution
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"), # Couleurs du gradient
+             repel = TRUE,              # Évite le chevauchement des noms
+             title = "ACP - Variables (Axes 3 et 4)")
+
+
+
+fviz_pca_ind(acp,
+             axes = c(3, 4),
+             geom = "point",
+             habillage = as.factor(bird$type),  # bien s'assurer que c’est un facteur
+             palette = "jco",
+             addEllipses = TRUE,
+             ellipse.level = 0.95,
+             repel = TRUE)
+
+
+```
+
+```{r}
+fviz_contrib(acp, choice = "var", axes = 1, top = 10)  # top 10 pour axe 1
+fviz_contrib(acp, choice = "var", axes = 2, top = 10)  # top 10 pour axe 2
+fviz_contrib(acp, choice = "var", axes = 3, top = 10)  # etc.
+fviz_contrib(acp, choice = "var", axes = 4, top = 10)
+
+# Contributions des variables aux axes 1 et 2
+acp$var$contrib[, 1:2]
+
+# Contributions des variables aux axes 3 et 4
+acp$var$contrib[, 3:4]
+
+```
+
+L’analyse en composantes principales (ACP) réalisée sur les variables morphologiques des oiseaux met en évidence plusieurs axes interprétables :
+
+✅ Axe 1 (Dim.1) :
+
+Ce premier axe est dominé par des contributions relativement homogènes de l’ensemble des variables de longueur et de largeur (humérus, ulna, fémur, tibia, tarse). Il reflète donc une dimension de taille globale de l’oiseau. Plus un individu est situé à droite sur cet axe, plus ses mesures osseuses sont importantes.
+
+✅ Axe 2 (Dim.2) :
+
+L’axe 2 est principalement déterminé par la longueur du tarse (tarl) avec une contribution de près de 44 %, ce qui en fait l’élément principal. Cet axe distingue donc surtout les individus selon la longueur de leur tarse.
+
+✅ Axe 3 (Dim.3) :
+
+Les variables les plus contributives à cet axe sont la largeur du tarse (tarw) (32,6 %), la longueur de l’ulna (ulnal) (22,98 %), et la longueur du humérus (huml) (22,64 %). Cela traduit un axe de contraste entre la largeur du tarse et la longueur des membres antérieurs, notamment les ailes. Il peut refléter une différenciation fonctionnelle entre oiseaux plus trapus et ceux aux membres allongés.
+
+✅ Axe 4 (Dim.4) :
+
+Cet axe est surtout influencé par la longueur du fémur (feml) (31,5 %), la longueur du tibia (tibl) (21,8 %) et la largeur de l’ulna (ulnaw) (17,2 %). Il représente donc un axe structuré autour de la morphologie des pattes postérieures.
+
+L’analyse des axes principaux montre que l’axe 1 reflète une dimension de taille globale, opposant les oiseaux de grande taille comme les rapaces et échassiers aux plus petits comme les percheurs, chanteurs et terrestres. L’axe 2 est dominé par la longueur du tarse, séparant les échassiers et certains nageurs aux longues pattes des percheurs et chanteurs aux tarses courts. L’axe 3 met en évidence un contraste entre des oiseaux aux tarses larges, tels que les nageurs et terrestres, et ceux aux ailes longues, notamment les rapaces. Enfin, l’axe 4 distingue les oiseaux selon la longueur des membres postérieurs, avec des échassiers et terrestres aux longues pattes opposés à des espèces plus arboricoles aux pattes courtes. Globalement, la morphologie des os permet de bien différencier les groupes fonctionnels d'oiseaux selon leurs adaptations écologiques.
+
+```{r}
+bird_scaled <- as.data.frame(bird_scaled)
+# Transformer le data frame en format long pour ggplot
+bird_scaled_long <- gather(bird_scaled, key = "Variable", value = "Valeur")
+
+# Créer un boxplot
+ggplot(bird_scaled_long, aes(x = Variable, y = Valeur)) +
+  geom_boxplot(aes(color = Variable), outlier.colour = "red") +  # Couleur des outliers en rouge
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +  # Rotation des labels de l'axe X
+  labs(title = "Boxplots des variables") 
+
+```
+
+```{r}
+# Boxplot pour chaque variable du jeu de données
+  # Organiser les plots en 3x3 (si tu as 9 variables, par exemple)
+boxplot(bird_scaled$huml, main="Boxplot - huml", ylab="huml")
+boxplot(bird_scaled$humw, main="Boxplot - humw", ylab="humw")
+boxplot(bird_scaled$ulnal, main="Boxplot - ulnal", ylab="ulnal")
+boxplot(bird_scaled$ulnaw, main="Boxplot - ulnaw", ylab="ulnaw")
+boxplot(bird_scaled$feml, main="Boxplot - feml", ylab="feml")
+boxplot(bird_scaled$femw, main="Boxplot - femw", ylab="femw")
+boxplot(bird_scaled$tibl, main="Boxplot - tibl", ylab="tibl")
+boxplot(bird_scaled$tibw, main="Boxplot - tibw", ylab="tibw")
+boxplot(bird_scaled$tarl, main="Boxplot - tarl", ylab="tarl")
+boxplot(bird_scaled$tarw, main="Boxplot - tarw", ylab="tarw")
+
+```
+
+\
+\
+
+### **corrélation des variables**
+
+```{r}
+# Calculer la matrice de corrélation
+cor_matrix <- cor(bird_scaled)
+print(cor_matrix)
+
+# Visualiser la matrice de corrélation avec un heatmap
+
+corrplot(cor_matrix, method = "color")
+
+```
+
+La matrice de corrélation montre une forte multicolinéarité entre plusieurs variables morphologiques des oiseaux, en particulier entre les longueurs et largeurs des membres (humérus, ulna, fémur, tibia). Par exemple, les variables huml (longueur humérus) et ulnal (longueur ulna) sont très fortement corrélées (0.976), de même que feml (longueur fémur) et femw (largeur fémur) (0.943). Cette forte corrélation suggère que certaines variables contiennent des informations redondantes, ce qui peut nuire à l'efficacité des méthodes de classification.
+
+Étant donné la forte multicolinéarité observée entre plusieurs variables, il est conseillé de réduire la dimensionnalité des données en utilisant les axes principaux obtenus via l'Analyse en Composantes Principales (ACP). Ces axes principaux représentent les directions de plus grande variance dans les données et sont non corrélés entre eux, ce qui les rend idéaux pour les méthodes de classification.
+
+Ainsi, pour appliquer les méthodes de K-means ou de Classification Hiérarchique Ascendante (CAH), nous utiliserons les axes principaux obtenus à partir de l'ACP comme variables d'entrée. Cela permet de simplifier l'analyse tout en préservant les informations importantes, et évite les problèmes de multicolinéarité qui pourraient nuire à l'efficacité des méthodes de clustering.
+
+En résumé, nous allons utiliser les axes principaux issus de l'ACP pour effectuer les méthodes de classification, afin de garantir des groupes homogènes tout en optimisant la performance de l'analyse.
+
+**Classification à l'aide de plusieurs méthodes**
+
+### **CAH**
+
+```{r}
+# Calcul de la matrice de distance (distance Euclidienne)
+dist_matrix <- dist(coords, method = "euclidean")
+#### **Choix de la stratégie à utiliser**
+```
+
+#### **Choix de la stratégie à utiliser**
+
+**Dendogramme avec la methode du saut minimal**
+
+```{r}
+
+
+# Application de la méthode d'agglomération (Ward.D2)
+CAH.single <- hclust(dist_matrix, method = "single")
+
+# Affichage du dendrogramme
+plot(CAH.single, main = "Dendrogramme avec saut minimal" , hang=-1)
+
+```
+
+**Dendogramme avec la methode du saut maximal**
+
+```{r}
+
+# Application de la méthode d'agglomération (Ward.D2)
+CAH.max <- hclust(dist_matrix, method = "complete")
+
+# Affichage du dendrogramme
+plot(CAH.max, main = "Dendogramme avec la methode du saut maximal", hang=-1)
+rect.hclust(CAH.max, 6, border ="green")
+
+
+res_nb <- NbClust(
+  data = coords,
+  distance = "euclidean",
+  min.nc = 2,
+  max.nc = 10,
+  method = "complete",
+  index = "all"
+)
+
+table(res_nb$Best.n[1,])
+
+```
+
+\
+\
+
+```{r}
+# Application de la méthode d'agglomération (Ward.D2)
+CAH.ward <- hclust(dist_matrix, method = "ward.D")
+
+# Affichage du dendrogramme
+plot(CAH.ward , main = "Dendogramme avec la methode de Ward" , hang=-1)
+
+rect.hclust(CAH.ward, 6, border ="green")
+sil_ward <- silhouette(cutree(CAH.ward, k = 2), dist(coords))
+mean(sil_ward[, 3])  # Moyenne des largeurs
+
+```
+
+**Evolution de l'inertie**
+
+```{r}
+par(mfrow=c(1,3))
+plot(rev(CAH.single$height),type="b")
+plot(rev(CAH.max$height),type="b")
+plot(rev(CAH.ward $height),type="b")
+```
+
+```{r}
+# Nombre de hauteurs à afficher (donc de clusters)
+nb <- 10
+
+# Exemple avec CAH.single
+plot(rev(CAH.single$height)[1:nb], type = "b", main = "CAH Single - 10 premiers sauts", 
+     xlab = "Index", ylab = "Hauteur")
+
+# Exemple avec CAH.max
+plot(rev(CAH.max$height)[1:nb], type = "b", main = "CAH Max - 10 premiers sauts", 
+     xlab = "Index", ylab = "Hauteur")
+
+# Exemple avec CAH.ward
+plot(rev(CAH.ward$height)[1:nb], type = "b", main = "CAH Ward - 10 premiers sauts", 
+     xlab = "Index", ylab = "Hauteur")
+
+
+library(cluster)
+sil_ward <- silhouette(cutree(CAH.ward, k = 2), dist(coords))
+mean(sil_ward[, 3])  # Moyenne des largeurs
+
+sil_max <- silhouette(cutree(CAH.max, k = 6), dist(coords))
+mean(sil_max[, 3])
+
+```
+
+```{r}
+# Supposons que vous avez déjà les coordonnées issues de l'ACP
+
+# Découpage de la CAH méthode complete en 6 clusters
+clusters_max <- cutree(CAH.max, k = 6)
+type_oiseau <- bird$type
+# 1. Table de contingence
+table(type_oiseau, clusters_max)
+
+# 2. Adjusted Rand Index (nécessite mclust)
+library(mclust)
+adjustedRandIndex(type_oiseau, clusters_max)
+
+
+# Visualisation
+library(factoextra)
+fviz_cluster(list(data = coords, cluster = clusters_max),
+             geom = "point",
+             ellipse.type = "convex",
+             palette = "Set2",
+             ggtheme = theme_minimal(),
+             main = "Visualisation des 6 clusters (Méthode Complete)")
+
+
+sil_ward <- silhouette(clusters_max, dist(coords))
+mean(sil_ward[, 3])  # Moyenne des largeurs
+
+sil_max <- silhouette(cutree(CAH.max, k = 2), dist(coords))
+mean(sil_max[, 3])
+
+```
+
+```{r}
+# Application de K-means sur les coordonnées des individus (axes 1 à 4)
+set.seed(123)  # Pour la reproductibilité
+kmeans_result <- kmeans(coords, centers = 6, nstart = 25)
+
+# Visualisation des résultats du clustering (affichage avec ggplot)
+library(ggplot2)
+df_kmeans <- data.frame(coords, Cluster = as.factor(kmeans_result$cluster))
+
+ggplot(df_kmeans, aes(x = Dim.1, y = Dim.2, color = Cluster)) +
+  geom_point() +
+  labs(title = "Clustering K-means sur les individus")
+
+
+clusters_max <- kmeans_result$cluster
+type_oiseau <- bird$type
+# 1. Table de contingence
+table(type_oiseau, clusters_max)
+
+```
+
+```{r}
+library(cluster)
+# Application de PAM
+pam_result <- pam(coords, k = 6)
+
+# Visualisation du clustering PAM
+df_pam <- data.frame(coords, Cluster = as.factor(pam_result$clustering))
+
+ggplot(df_pam, aes(x = Dim.1, y = Dim.2, color = Cluster)) +
+  geom_point() +
+  labs(title = "Clustering PAM sur les individus")
+
+clusters_max <- pam_result$clustering
+type_oiseau <- bird$type
+# 1. Table de contingence
+table(type_oiseau, clusters_max)
+
+
+
+```
+
+```{r}
+library(cluster)
+# Calcul de la silhouette pour évaluer la qualité du clustering
+silhouette_result <- silhouette(kmeans_result$cluster, dist_matrix)
+
+silhouette_result
+# Visualisation de la silhouette
+plot(silhouette_result, main = "Méthode de Silhouette")
+
+```
