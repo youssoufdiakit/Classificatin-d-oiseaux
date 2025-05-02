@@ -1,0 +1,893 @@
+---
+title: "Classsification bird"
+author: "Diakite_Janssens_Idrissi-Ghalmi"
+date: "2025-04-29"
+output: pdf_document
+editor_options: 
+  markdown: 
+    wrap: sentence
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r }
+library(factoextra)
+library(dplyr)
+library(tidyverse)
+library(FactoMineR)
+library(cowplot)
+library(cluster)
+library(NbClust)
+library(corrplot)
+library(ggplot2)
+
+rm(list = ls())
+```
+
+```{r }
+bird <- read.csv("bird.csv" , sep = "," , header = TRUE)
+bird
+summary(bird)
+sum(is.na(bird))
+```
+
+Notre base de donnée contient 15 valeurs manquantes ,et le summary nous montre qu'il y'a une variance importante et des valeurs aberrantes .
+Par exemple pour la longueur de ulna nous avons le max qui est de 422 qui est trop éloigné de la moyenne qui est de 64.
+
+```{r}
+which(!complete.cases(bird))           # Donne les indices des lignes incomplètes
+bird[!complete.cases(bird), ]          # Affiche les lignes avec des NA
+bird = na.omit(bird)                   # Supprime les lignes avec NA
+sum(is.na(bird))                       # Vérifie qu’il n’y a plus de NA → devrait retourner 0
+by(bird[, -c(1, 12)], bird$type, boxplot)
+```
+
+Les boites à moustache , nous montre plusieurs valeurs aberrantes pour chaque variable en fonction du type d'oiseaux.
+Les valeurs manquantes se situent seulement sur 7 observations , nous décidons de les supprimer.
+
+On perd seulement 7 individus sur 420 individus, donc les données que nous disposons au final pour notre classification d'espéces d'oiseau contient 413 oiseaux.
+
+comme on a les mêmes unités on va juger qu'il n'est pas necessaire de standardiser les données pour le moment.
+
+```{r}
+DataCla <- select(bird, -c("id", "type")) # On enléve la variables type pour les méthodes de classification + la variable ind qui ne sert à rien pour la classification 
+Espece <- bird[, 12] # On garde l'espèce dans un vecteur pour les comparer avec nos prévisions 
+```
+
+On détermine le type des variables pour estimer si on a besoin d'effectuer des modifications.
+
+```{r}
+str(DataCla)
+```
+
+Toutes les variables sont numériques cela ne devrait pas poser de problème dans l'éxecution des méthodes.
+
+# Approche naive du probléme
+
+Dans cette première partie on va alors supposer que on peut tenter une répartion avec les données de base.
+
+```{r}
+dist_d <- dist(DataCla, method = "euclidian") # Distance euclidienne
+```
+
+## Classification assendante
+
+### Méthode du saut minimal
+
+```{r}
+CAH_min <- hclust(dist_d, method = "single")
+plot(rev(CAH_min$height)[1:15], main = "Intertie pour la CAH avec la méthode du saut minimal", type = "b", col = "red", xlab = "Nombre de groupe", ylab = "Inertie")
+```
+
+On semble avoir une valeur autour de 7 pour le nombre de groupe optimal.
+Mais comme on connait le jeu de donné on va tricher et choisir k = 6.
+
+```{r}
+gpe_min <- cutree(CAH_min, k = 6)
+plot(CAH_min , main = "Dendrogramme avec saut minimal" , hang=-1)
+rect.hclust(CAH_min, 6, border ="blue")
+```
+
+Visuellement , on remarque que le dendogramme coupé à 6 clusters révèle une répartition déséquilibrée des individus entre les groupes : l’un d’eux concentre une proportion majoritaire, tandis que les autres ne rassemblent qu’un nombre restreint d’individus.
+Cette asymétrie suggère la présence d’un profil morphologique dominant ou commun à plusieurs espèces
+
+```{r}
+# Tableau de contigence
+table(Espece, gpe_min)
+```
+
+On a bien les résultat attendu après la visualisation graphique.Donc la méthode du saut minimal n'est pas adapté pour notre jeu de donnée
+
+### Méthode du saut maximal
+
+```{r}
+CAH_max <- hclust(dist_d, method = "complete")
+plot(rev(CAH_max$height)[1:15], main = "Inertie de la CAH méthode du saut maximal", type = "b", col = "red", xlab = "Nombre de groupe", ylab = "Inertie")
+```
+
+On trouve un nombre de groupe optimal pour K= 6.
+
+```{r}
+gpe_max <- cutree(CAH_max, k = 6)
+plot(CAH_max, main = "Dendrogramme avec saut maximal", hang=-1)
+rect.hclust(CAH_max, 6, border ="blue")
+```
+
+Nous avons une répartition des groupes mieux équilibrée que la méthode précédente.
+Cependant, la présence d'un groupe dominant suscite des inquiétudes quant à une possible mauvaise prédiction.
+
+```{r}
+table(Espece, gpe_max)
+```
+
+On a toujours le groupe 1 qui récupère quasiment tous les les individus, mais on retrouve le groupe 2 qui récupére la majorité des rapaces malgré qu'on retrouve majoritairement des oiseaux nageurs.
+
+### Méthode de Ward
+
+```{r}
+CAH_ward <- hclust(dist_d, method = "ward.D")
+plot(rev(CAH_ward$height)[1:15], main = "Evolution de l'intertie pour la méthode de Ward", xlab = "Nombre de groupe", ylab = "Inertie", type = "b", col = "red")
+```
+
+On voit que le coude se situe à k= 3
+
+```{r}
+DataCla2 <- DataCla
+gpe_ward <- cutree(CAH_ward, k = 3)
+plot(CAH_ward)
+rect.hclust(CAH_ward, 3, border ="blue")
+DataCla2$gpe1 <- as.factor(gpe_ward)
+```
+
+```{r}
+table(Espece, gpe_ward)
+```
+
+La classification par Ward pour K = 3 a bien isolé les songbirds dans un groupe distinct (groupe 1), preuve de leur profil morphologique particulier.
+
+Les nageurs, rapaces et échassiers sont plus diffusés dans les groupes 2 et 3, ce qui montre que leurs morphologies sont plus proches ou que les frontières entre ces catégories sont moins nettes sur le plan morphologique.
+
+Certains types comme les terrestres et percheurs apparaissent dans tous les groupes mais en petites proportions, indiquant qu'ils partagent des caractéristiques avec plusieurs autres types.
+
+```{r}
+fviz_cluster(list(data = DataCla, cluster = gpe_ward),
+             geom = "point",
+             ellipse.type = "convex",
+             palette = "Set2",
+             ggtheme = theme_minimal(),
+             main = "Visualisation des 3 clusters (Méthode Ward)")
+```
+
+## K-mean
+
+```{r}
+oiseau.kmeans = kmeans(DataCla, 6, nstart = 50)
+fviz_cluster(list(data = DataCla, cluster = gpe_kmeans),
+             geom = "point",
+             ellipse.type = "convex",
+             palette = "Set2",
+             ggtheme = theme_minimal(),
+             main = "Visualisation des 6 clusters (Méthode Kmeans)")
+gpe_kmeans <- oiseau.kmeans$cluster
+table(Espece, gpe_kmeans)
+DataCla2$gpe2 <- as.factor(gpe_kmeans)
+```
+
+La classification par la méthode des *k-means* avec six groupes a permis de dégager des profils morphologiques relativement distincts parmi les individus.
+Cette analyse vise à comprendre comment ces groupes se répartissent selon le type d’oiseau, contenu dans la variable `Espece`.
+
+Le **premier groupe (G1)** regroupe une très large majorité de *songbirds* (SO) et de *percheurs* (P), suggérant une morphologie fine et légère, typique des oiseaux volants agiles et chanteurs.
+Cela témoigne d’une bonne capacité du modèle à isoler des morphotypes très spécifiques.
+
+Les **groupes G3, G4 et G6** présentent une composition plus hétérogène, combinant des *rapaces (R)*, des *nageurs (SW)* et des *échassiers (W)*.
+Cette dispersion reflète la diversité morphologique de ces espèces, qui partagent certaines caractéristiques (longueur des membres, robustesse osseuse), rendant leur séparation moins nette.
+
+Les **groupes G2 et G5** sont plus restreints.
+G2, par exemple, contient uniquement des nageurs, ce qui suggère qu'il capture une variante bien particulière du type "SW", peut-être liée à une adaptation aquatique marquée.
+G5, lui, reste marginal, avec peu d’individus et une composition peu homogène, ce qui peut signaler un groupe résiduel ou une sur-segmentation due au choix de k.
+
+En somme, **la méthode K-means permet d’identifier certains morphotypes clairs, notamment pour les oiseaux de petite taille et spécialisés dans le vol**, comme les SO et P.
+En revanche, les espèces plus variées sur le plan morphologique (SW, W, R) sont réparties sur plusieurs groupes, ce qui indique des zones de recouvrement morphologique importantes.
+
+## Profil
+
+```{r}
+inter1 <- catdes(DataCla2[,-12], num.var = 11)
+plot.catdes(inter1, cex.names = 0.7, barplot = T)
+inter2 <- catdes(DataCla2[,-11], num.var = 11)
+plot.catdes(inter2, cex.names = 0.7, barplot = T)
+```
+
+Pour la méthode CAH : - Groupe 1 : On a des os de petite taille, en particulier pour la longeur de l'humérus, la longueur du tibia et la largeur de l'ulna.
+- Groupe 2 : On a des os de grande taille, en particulier pour la longeur de l'ulna, du tibia et de l'humérus/ - Groupe 3 : On a des os de taille relativement grande et en particulier pour la largeur du tarse.
+
+Pour la méthode k-mean: - Groupe 1 et 4 : On a deux groupes de tailles modérement importante pour les os.
+- Groupe 2 et 6 : On a deux groupes avec des os de taille important.
+- Groupe 3 : Est caractérisé par des os de petite taille.
+- Groupe 5 : Ne possède pas réellement de caractéristique claire.
+
+On a donc une classification qui semble plus se faire par la taille des individus qu'autre chose.
+
+# Données standardisées
+
+On revient sur la volonté de ne pas standardiser les données, on va alors tenté de faire une analyse en composante principale.
+Pour déterminer les composantes les plus pertinantes dans la classification que l'on veut faire.
+
+```{r}
+DataStan <- scale(DataCla)
+summary(DataStan)
+```
+
+## Analyse en composante principale
+
+L'analyse en composante principale sera utilisée pour explorer la structure sous-jacente des données et de mettre encore un peu plus en évidence les relations entre les variables et individus.
+De plus ça vous ne permettre de reduire la dimension des données afin de donner le meme poids à chaque variable.
+
+```{r}
+ACP <- PCA(DataStan, graph = FALSE)
+# Affichage des corrélations des individus selon les deux premières composantes 
+fviz_pca_var(ACP, col.var = "contrib",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE)
+
+# Affichage des corrélations des individus selon les deux dernières composantes 
+fviz_pca_var(ACP,
+             axes = c(3, 4),
+             col.var = "contrib",       # Colorier selon la contribution
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"), # Couleurs du gradient
+             repel = TRUE,              # Évite le chevauchement des noms
+             title = "ACP - Variables (Axes 3 et 4)")
+
+
+
+fviz_pca_ind(ACP,
+             axes = c(3, 4),
+             geom = "point",
+             habillage = as.factor(Espece),  
+             palette = "jco",
+             addEllipses = TRUE,
+             ellipse.level = 0.95,
+             repel = TRUE)
+fviz_pca_ind(ACP,
+             geom = "point",
+             habillage = as.factor(Espece),  # bien s'assurer que c’est un facteur
+             palette = "jco",
+             addEllipses = FALSE,
+             ellipse.level = 0.55,
+             repel = TRUE)
+```
+
+```{r}
+fviz_contrib(ACP, choice = "var", axes = 1, top = 10)  # top 10 pour axe 1
+fviz_contrib(ACP, choice = "var", axes = 2, top = 10)  # top 10 pour axe 2
+fviz_contrib(ACP, choice = "var", axes = 3, top = 10)  # etc.
+fviz_contrib(ACP, choice = "var", axes = 4, top = 10)
+```
+
+L’analyse en composantes principales (ACP) réalisée sur les variables morphologiques des oiseaux met en évidence plusieurs axes interprétables :
+
+Axe 1 (Dim.1) :
+
+Ce premier axe est dominé par des contributions relativement homogènes de l’ensemble des variables de longueur et de largeur (humérus, ulna, fémur, tibia, tarse).
+Il reflète donc une dimension de taille globale de l’oiseau.
+Plus un individu est situé à droite sur cet axe, plus ses mesures osseuses sont importantes.
+
+Axe 2 (Dim.2) :
+
+L’axe 2 est principalement déterminé par la longueur du tarse (tarl) avec une contribution de près de 44 %, ce qui en fait l’élément principal.
+Cet axe distingue donc surtout les individus selon la longueur de leur tarse.
+
+Axe 3 (Dim.3) :
+
+Les variables les plus contributives à cet axe sont la largeur du tarse (tarw) (32,6 %), la longueur de l’ulna (ulnal) (22,98 %), et la longueur du humérus (huml) (22,64 %).
+Cela traduit un axe de contraste entre la largeur du tarse et la longueur des membres antérieurs, notamment les ailes.
+Il peut refléter une différenciation fonctionnelle entre oiseaux plus trapus et ceux aux membres allongés.
+
+Axe 4 (Dim.4) :
+
+Cet axe est surtout influencé par la longueur du fémur (feml) (31,5 %), la longueur du tibia (tibl) (21,8 %) et la largeur de l’ulna (ulnaw) (17,2 %).
+Il représente donc un axe structuré autour de la morphologie des pattes postérieures.
+
+L’analyse des axes principaux montre que l’axe 1 reflète une dimension de taille globale, opposant les oiseaux de grande taille comme les rapaces et échassiers aux plus petits comme les percheurs, chanteurs et terrestres.
+L’axe 2 est dominé par la longueur du tarse, séparant les échassiers et certains nageurs aux longues pattes des percheurs et chanteurs aux tarses courts.
+L’axe 3 met en évidence un contraste entre des oiseaux aux tarses larges, tels que les nageurs et terrestres, et ceux aux ailes longues, notamment les rapaces.
+Enfin, l’axe 4 distingue les oiseaux selon la longueur des membres postérieurs, avec des échassiers et terrestres aux longues pattes opposés à des espèces plus arboricoles aux pattes courtes.
+Globalement, la morphologie des os permet de bien différencier les groupes fonctionnels d'oiseaux selon leurs adaptations écologiques.
+
+```{r}
+
+coords <- ACP$ind$coord[, 1:4] # On prend les  quatres premières composantes de l'ACP
+fviz_eig(ACP, addlabels = TRUE, ylim = c(0, 50))
+
+```
+
+On voit le groupe des nageurs qui semble davantage corrélé à l'axe 1 qui est davantage influencé par la taille des oiseaux, c'est d'ailleur pour cette rasion que le groupe chanteur est alors bien plus faible comme c'est souvent des oiseaux de petite taille.
+
+L'axe deux montre ensuite une grande différence entre les échassier et les nageurs en particulier, les échassier ont tendance à avoir un tarse grand tandis que celui des nageurs est plus court d'après l'ACP.
+
+On veut vérifier la corrélation entre les os.
+
+```{r}
+corrplot(cor(DataStan), type = "upper", method = "number")
+```
+
+Sans grande surprise on a alors une corrélation imporantes entre tous les os, on va donc ce concentrer sur ceux qui ne sont pas corrélés avec un seuil de 80%.
+
+On a alors la longeur du tarse qui n'est pas corrélés aux longeurs des bras et de plus la longeur du tarse n'est pas corrélés à sa largeur.
+On a donc eu raison de supposer que certains groupes se distinge par la longeur de leur tarse et que ce n'est pas dû à la taille mais alors soit à des courtes pattes ou des longues pattes.
+
+Étant donné la forte multicolinéarité observée entre plusieurs variables, il est conseillé de réduire la dimensionnalité des données en utilisant les axes principaux obtenus via l'Analyse en Composantes Principales (ACP).
+Ces axes principaux représentent les directions de plus grande variance dans les données et sont non corrélés entre eux, ce qui les rend idéaux pour les méthodes de classification.
+
+Ainsi, pour appliquer les méthodes de K-means ou de Classification Hiérarchique Ascendante (CAH), nous utiliserons les axes principaux obtenus à partir de l'ACP comme variables d'entrée.
+Cela permet de simplifier l'analyse tout en préservant les informations importantes, et évite les problèmes de multicolinéarité qui pourraient nuire à l'efficacité des méthodes de clustering.
+
+## Classification ascendante
+
+On choisira de tricher sur la sélection du nombre de groupe, comme on connait le jeux de données à l'avance on va fixer par défaut k = 6 pour tous les tests.
+Apres nous discuterons d'eventuels choix de k
+
+### Methode de saut maximal
+
+```{r}
+CAH_max <- hclust(dist(coords), method = "complete")
+plot(CAH_max, main = "Dendrogramme avec saut maximal", hang = -1)
+rect.hclust(CAH_max, 6, border ="blue")
+gpe_max <- cutree(CAH_max, 6)
+table( Espece, gpe_max)
+fviz_cluster(list(data = coords, cluster = gpe_max),
+             geom = "point",
+             ellipse.type = "convex",
+             palette = "Set2",
+             ggtheme = theme_minimal(),
+             main = "Visualisation des 6 clusters (Méthode Complete)")
+
+DataCla$gpe1 <- as.factor(gpe_max)
+sil_max <- silhouette(gpe_max, dist(coords))
+mean(sil_max[, 3])
+```
+
+La CAH avec le saut maximal réalisée à partir des axes principaux de l’ACP a produit une partition en 6 groupes, dont la structure est plus nette et marquée que celle obtenue avec les variables brutes.
+
+Groupe 1 :
+
+Ce groupe concentre tous les SOngbirds (SO) et une large majorité des Perching (P), ce qui montre une excellente cohérence morphologique pour ces deux espèces.
+Cela suggère que les axes principaux de l’ACP capturent très bien les caractéristiques fines associées à ces oiseaux, généralement de petite taille et adaptés au vol agile.
+
+Groupes 2 et 3 :
+
+Ces deux groupes contiennent principalement des Rapaces (R) ainsi qu’un sous-ensemble des Wading (W) et SWimming (SW).
+Cela indique une séparation morphologique entre différents profils de ces oiseaux robustes.
+Par exemple, G2 pourrait correspondre à des morphologies plus massives (ex : grands nageurs ou échassiers), tandis que G3 regrouperait des individus intermédiaires.
+
+Groupes 4, 5 et 6 :
+
+Ces groupes contiennent peu d’individus, souvent répartis entre SW, T et W, ce qui pourrait signaler :
+
+une sur-segmentation de profils rares,
+
+des individus aux morphologies atypiques,
+
+L’indice de silhouette supérieur à 0.5 indique une **bonne séparation des groupes** meme si ce n'est pas le résultat qu'on attendait d'aprés nos types de base
+
+### Methode de Ward
+
+```{r}
+CAH_ward <- hclust(dist(coords), method = "ward.D2")
+plot(CAH_ward ,main = "Dendogramme avec la methode de ward")
+rect.hclust(CAH_ward, 6, border ="blue")
+gpe_ward <- cutree(CAH_ward, 6)
+table(Espece, gpe_ward)
+fviz_cluster(list(data = coords, cluster = gpe_ward),
+             geom = "point",
+             ellipse.type = "convex",
+             palette = "Set2",
+             ggtheme = theme_minimal(),
+             main = "Visualisation des 6 clusters (Méthode Ward)")
+
+DataCla$gpe2 <- as.factor(gpe_ward)
+sil_ward <- silhouette(cutree(CAH_ward, k = 6), dist(coords))
+mean(sil_ward[, 3]) 
+```
+
+On obtient un dendograme relativement bien répartie en 6 groupes identifiables, même s'il on peut remarquer que les trois groupes sur la droite on alors des différences de hauteurs plutot faibles.
+
+Groupe 1
+
+Ce groupe contient surtout des **SWimming (SW)** (42) et des **Wading (W)** (25), ce qui suggère un regroupement de morphologies adaptées aux milieux aquatiques : membres postérieurs longs ou robustes, potentiellement spécialisés pour la nage ou la marche dans l’eau.
+
+Groupe 2
+
+Ce groupe est assez hétérogène, avec une forte présence de SOngbirds (22), de Perching (17), mais aussi des Terrestrial (18) et des SW (17).
+Cela pourrait indiquer que ces individus partagent des traits morphologiques plus généraux ou intermédiaires (taille modérée, capacité de vol correcte, pas de spécialisation extrême).
+
+Groupe 3
+
+On y retrouve surtout des Rapaces (20) et quelques Wading (11) et SW (18).
+Ce groupe pourrait représenter des oiseaux puissants, au squelette plus massif, liés à des besoins spécifiques comme la chasse ou le soutien musculaire.
+
+Groupe 4
+
+Ce groupe est plus restreint (9 Rapaces, 11 SW, 3 Terrestrial), et semble regrouper des individus aux morphologies moins fréquentes.
+Il pourrait correspondre à une transition morphologique entre des groupes plus extrêmes (vol/sol/eau).
+
+Groupe 5
+
+Celui-ci est assez petit (18 SW uniquement), ce qui suggère une segmentation spécifique au sein des nageurs.
+Il est possible qu’il regroupe des oiseaux aquatiques plus petits ou de morphologie distincte (ex : palmures plus larges ou membres plus courts).
+
+Groupe 6
+
+Ce groupe regroupe la majorité des SOngbirds (102) ainsi que plusieurs Perching (17), ce qui montre une très forte cohérence morphologique.
+Ces individus partagent sans doute des structures osseuses légères et adaptées au vol et au perchage.
+
+Cependant l’indice de silhouette (= 0.3954) montre que des chevauchements persistent, notamment entre des groupes proches morphologiquement (ex. Rapacious, Wading, Swimming).
+Le découpage en 6 clusters (même s’il correspond à la variable `type`) n’est pas parfaitement aligné avec les distances morphologiques naturelles .
+Et il reste inferieurà celle de la methode du saut maximal qui est de 0.51
+
+## K-means
+
+```{r}
+oiseau.kmeans = kmeans(coords, 6, nstart = 50)
+gpe_kmeans <- oiseau.kmeans$cluster
+fviz_cluster(list(data = coords, cluster = gpe_kmeans),
+             geom = "point",
+             ellipse.type = "convex",
+             palette = "Set2",
+             ggtheme = theme_minimal(),
+             main = "Visualisation des 6 clusters (Méthode K-mean)")
+DataCla$gpe3 <- as.factor(gpe_kmeans)
+table(Espece, gpe_kmeans)
+sil_kmean <- silhouette(gpe_kmeans, dist(coords))
+mean(sil_kmean[, 3]) 
+```
+
+On obtient déjà une bien meilleur représentation de groupes séparés.
+
+Cluster 1
+
+Majorité de SWimming (39), suivi de Wading (26).Ce groupe semble regrouper des oiseaux adaptés à la nage ou aux milieux aquatiques, probablement avec des pattes longues et fortes.La morphologie de ces deux types peut se recouper, ce qui justifie leur présence commune dans ce cluster.
+
+Cluster 2
+
+Mélange de SOngbirds (24), SWimming (20), Terrestrial (17), Wading (13), et Perching (17).C’est un groupe hétérogène, mais qui peut correspondre à des oiseaux de taille moyenne, sans spécialisation extrême.La présence de nombreux types montre un groupe tampon ou intermédiaire, probablement difficile à caractériser.
+
+Cluster 3
+
+Principalement SWimming (18), suivi de quelques Rapacious (4).
+Semble proche du cluster 1, avec une morphologie orientée vers la mobilité aquatique, mais peut-être avec des variations de proportions.
+
+Cluster 4
+
+Petit groupe : 8 SWimming, 2 Terrestrial, 2 Wading.Trop réduit pour être bien interprété seul.
+Il capte peut-être une forme intermédiaire ou une morphologie atypique.
+
+Cluster 5
+
+SOngbirds (100) dominants, avec 17 Perching, quelques Wading, etc.Groupe très homogène, correspondant clairement à des oiseaux chanteurs et des petits percheurs, au squelette léger et aux membres fins.
+
+Cluster 6
+
+Rapacious (24) très présents, suivis de SWimming (21) et Wading (10).Ce groupe correspond à des oiseaux à morphologie massive, avec des membres forts, adaptés soit à la préhension (rapaces) soit à des activités aquatiques robustes.
+
+L’indice de silhouette de 0.409 indique une qualité de partitionnement moyenne.
+mais meilleur que celle avec ward et médiocre à coté de celle du saut maximal.
+Cela signifie que les groupes sont relativement bien séparés, mais qu’il existe tout de même des chevauchements entre certains clusters.
+
+## PAM
+
+```{r}
+PAM <- pam(coords, k = 6)
+           
+# Visualisation du clustering PAM
+df_pam <- data.frame(coords, Cluster = as.factor(PAM$clustering))
+
+ggplot(df_pam, aes(x = Dim.1, y = Dim.2, color = Cluster)) +
+  geom_point() +
+  labs(title = "Clustering PAM sur les individus")
+
+gpe_pam <- PAM$clustering
+DataCla$gpe4 <- as.factor(gpe_pam)
+# 1. Table de contingence
+table(Espece, gpe_pam)
+sil_pam <- silhouette(gpe_pam, dist(coords))
+mean(sil_pam[, 3]) 
+```
+
+L’indice de silhouette est inférieur à 0.4, ce qui indique une séparation des clusters plus floue.
+Bien que des tendances soient visibles, les frontières entre groupes sont moins nettes que dans le cas du complete linkage ou du k-means.
+Cela suggère une structuration des données moins bien capturée par cette méthode, ou des morphologies plus continues.
+
+## Profils
+
+```{r}
+inter1 <- catdes(DataCla[,-c(12, 13, 14)], num.var = 11)
+plot.catdes(inter1, cex.names = 0.7, barplot = T)
+inter2 <- catdes(DataCla[,-c(11, 13, 14)], num.var = 11)
+plot.catdes(inter2, cex.names = 0.7, barplot = T)
+inter3 <- catdes(DataCla[,-c(11, 12, 14)], num.var = 11)
+plot.catdes(inter3, cex.names = 0.7, barplot = T)
+inter4 <- catdes(DataCla[,-c(11, 12, 13)], num.var = 11)
+plot.catdes(inter4, cex.names = 0.7, barplot = T)
+```
+
+Pour la CAH méthode de Ward : - Groupe 1 : caractérisé par des os de tailles moyennement grandes - Groupe 2 : caratérisé par des os de tailles moyennement failles - Groupe 3 : caractérisé par des os de tailles importantes en particulier pour les tailles des jambes - Groupe 4 : caractérisé par des os de tailles importantes - Groupe 5 : caractérisé par des os des ailes de tailles importantes et un tarse grand - Groupe 6 : caractérisé par des os de tailles faibles
+
+On retrouve des profils différents pour les deux autres méthodes mis à part que les groupes choisi n'ont pas le même numéro car cela dépend de la machine.
+
+On peut alors comprendre d'où vient les difficultés des méthodes pour la classification des oiseaux, car on trouve alors 4 groupe sur 6 qui ont été choisi apparement plus pour leur tailles que le profil de leur ossature.
+
+## Silouette
+
+Inertie + sillouette
+
+# Rapport
+
+## Transformation des données
+
+On veut s'intérer à faire l'étude mais au lieux de calculer avec la longueurs et la largeurs des os, on va alors faire le rapport entre la longeur par la largeur.
+
+```{r}
+Rapport <- bird |>
+  mutate(humr = as.numeric(huml/humw),
+         ulnar = as.numeric(ulnal/ulnaw),
+         femr = as.numeric(feml/femw),
+         tibr = as.numeric(tibl/tibw),
+         tarr = as.numeric(tarl/tarw)) |>
+  select(humr, ulnar, femr, tibr, tarr)
+```
+
+## Analyse en composante principale
+
+```{r}
+RapportStan <- scale(Rapport)
+ACP <- PCA(RapportStan, graph = FALSE)
+plot(ACP, type = "l")
+coords <- ACP$ind$coord[, 1:5] # On prend les premières composantes de l'ACP
+fviz_eig(ACP, addlabels = TRUE, ylim = c(0, 50))
+```
+
+On a choisi alors les 4 premières composantes comme on a une décroissance jusqu'a la cinquième.
+
+```{r}
+# Affichage des corrélations des individus selon les deux premières composantes 
+fviz_pca_var(ACP, col.var = "contrib",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE)
+
+# Affichage des corrélations des individus selon les deux dernières composantes 
+fviz_pca_var(ACP,
+             axes = c(3, 4),
+             col.var = "contrib",       # Colorier selon la contribution
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"), # Couleurs du gradient
+             repel = TRUE,              # Évite le chevauchement des noms
+             title = "ACP - Variables (Axes 3 et 4)")
+
+fviz_pca_ind(ACP,
+             geom = "point",
+             habillage = as.factor(Espece), 
+             palette = "jco",
+             addEllipses = TRUE,
+             ellipse.level = 0.95,
+             repel = TRUE)
+
+fviz_pca_ind(ACP,
+             axes = c(3, 4),
+             geom = "point",
+             habillage = as.factor(Espece),  
+             palette = "jco",
+             addEllipses = TRUE,
+             ellipse.level = 0.95,
+             repel = TRUE)
+```
+
+Axe 1 : On observe une corrélation positive avec les os des pattes et une corrélation négative avec les os des ailes.
+Cet axe semble donc opposer les individus selon le rapport entre les os des pattes et ceux des ailes.
+
+Axe 2 : Il semble être particulièrement corrélé avec le rapport de la majorité des os, à l'exception notable du fémur.
+Cet axe reflète donc des variations morphologiques globales, indépendamment du fémur.
+
+Axe 3 : On remarque une corrélation marquée uniquement avec le rapport du fémur.
+On peut donc estimer que cet axe distingue les individus selon la longueur relative de leur fémur.
+
+Axe 4 : Cet axe ne semble pas montrer de corrélation forte avec les variables mesurées, il est donc moins interprétable d’un point de vue morphologique.
+
+Dans le graphique en projection sur les deux premiers axes, on remarque que le groupe des oiseaux chanteurs (SOngbirds) se caractérise par un rapport plus élevé pour les os des ailes et un rapport plus faible pour les os des pattes.
+À l’inverse, les échassiers (Wading) semblent davantage représentés sur l’axe 2, probablement en raison de leur grande taille : ils ont en général des os plus longs que larges, ce qui influence leur position sur ces axes.
+
+```{r}
+fviz_contrib(ACP, choice = "var", axes = 1, top = 10)  # top 10 pour axe 1
+fviz_contrib(ACP, choice = "var", axes = 2, top = 10)  # top 10 pour axe 2
+fviz_contrib(ACP, choice = "var", axes = 3, top = 10)  # etc.
+fviz_contrib(ACP, choice = "var", axes = 4, top = 10)
+```
+
+Pour l'axe 1, il est principalement influencé par le rapport pour le tibia et le fémur.
+
+Pour l'axe 2, il est principalement influencé par le rapport pour l'humérus, l'ulna et le tarse.
+
+Pour l'axe 3, il est principalement influencé par le rapport du fémur.
+
+Pour l'axe 4, il est principalement influencé par le rapport du tibia et du torse.
+
+```{r}
+corrplot(cor(Rapport), type = "upper", method = "number")
+```
+
+En posant un seuil au niveau de 80%, on trouve une corrélation entre l'humérus et l'ulna, et légèrement entre le tibia et le tarse, on interprète cela comme le fait que on a une corrélation de la proportion entre deux os qui sont très proches.
+
+## CAH
+
+```{r}
+CAH_ward <- hclust(dist(coords), method = "ward.D2")
+plot(CAH_ward)
+rect.hclust(CAH_ward, 6, border ="blue")
+gpe_ward <- cutree(CAH_ward, 6)
+Rapport$gpe1 <- as.factor(gpe_ward)
+fviz_cluster(list(data = coords, cluster = gpe_ward),
+             geom = "point",
+             ellipse.type = "convex",
+             palette = "Set2",
+             ggtheme = theme_minimal(),
+             main = "Visualisation des 6 clusters (Méthode Ward)")
+table(gpe_ward, Espece)
+
+```
+
+Pour le *clusplot*, on trouve alors plusieurs groupes qui se chevauchent.
+On peut craindre une mauvaise répartition.
+
+On retrouve alors le groupe 1, qui récupère tous les groupes sauf les chanteurs.
+On remarque qu'il rassemble une bonne partie des pêcheurs et des rapaces.
+Quant aux groupes 5 et 6, ils récupèrent à eux deux le groupe des chanteurs.
+
+Cependant, on n'a aucune bonne répartition pour les autres groupes.
+
+## K means
+
+```{r}
+oiseau.kmeans = kmeans(coords, 6, nstart = 50)
+gpe_kmeans <- oiseau.kmeans$cluster
+Rapport$gp2 <- as.factor(gpe_kmeans)
+fviz_cluster(list(data = coords, cluster = gpe_kmeans),
+             geom = "point",
+             ellipse.type = "convex",
+             palette = "Set2",
+             ggtheme = theme_minimal(),
+             main = "Visualisation des 6 clusters (Méthode Ward)")
+table(gpe_kmeans, Espece)
+```
+
+On retouve un chauvechement.
+
+On retrouve des résultats similaire, sauf les rapaces et les nageurs qui sont alors bien mois identifiés que dans les autres résultats précédants.
+
+## PAM
+
+```{r}
+PAM <- pam(coords, k= 6)
+           
+# Visualisation du clustering PAM
+df_pam <- data.frame(coords, Cluster = as.factor(PAM$clustering))
+gpe_pam <- PAM$clustering
+Rapport$gpe3 <- as.factor(gpe_pam)
+fviz_cluster(list(data = coords, cluster = gpe_pam),
+             geom = "point",
+             ellipse.type = "convex",
+             palette = "Set2",
+             ggtheme = theme_minimal(),
+             main = "Visualisation des 6 clusters (Méthode PAM)")
+# 1. Table de contingence
+table(Espece, gpe_pam)
+```
+
+La méthode ne nous donne pas de meilleur groupe, c'est même l'inverse on retrouve par exemple les chanteurs réparties entre deux groupes.
+
+## Profils
+
+```{r}
+inter1 <- catdes(Rapport[,-c(7, 8)], num.var = 6)
+plot.catdes(inter1, cex.names = 0.7, barplot = T)
+inter2 <- catdes(Rapport[,-c(6, 8)], num.var = 6)
+plot.catdes(inter2, cex.names = 0.7, barplot = T)
+inter3 <- catdes(Rapport[,-c(6, 7)], num.var = 6)
+plot.catdes(inter3, cex.names = 0.7, barplot = T)
+```
+
+Pour la CAH : - Groupe 1 : caractérisé par un rapport faibles entre la longeur et la largeur des os, c'est à dire que on a des os plus large que long ou alors similaire, en particulier par le tarse et le tibia.
+- Groupe 2 : caratérisé par un rapport faible entre la longeur et la largeur du fémur et un rapport relativement important pour le tarse et l'humérus.
+- Groupe 3 : caractérisé par un rapport important pour l'ulna et l'humérus.
+- Groupe 4 : caractérisé par un rapport faible pour le fémur, le tibia et le tarse (on remarque que les os relatifs aux pattes) et un rapport important pour l'humérus et l'ulna.
+- Groupe 5 : caractérisé par un rapport relativement faible pour l'humérus et l'ulna et relativement important pour le fémur et le tarse, on remarque encre une différence entre les os des pattes et des ailes.
+- Groupe 6 : caractérisé par un rapport relativement faible pour les os des ailes et important pour les os des bras.
+
+Comme pour la partie précédante on trouve alors des parterns similaires pour les deux autres méthodes.
+
+Cette fois si la méthode semble bien classifier les oiseaux selon des caractéristiques de leur morphologie mais on trouve tout de même des classification au maximum équivalentes, on peut commencer à estimer alors que peut être que les groupes données sont discutables.
+
+## Silouette
+
+On va visualiser la silouette en particulier pour la méthode k-means pour estimer le améliorations possibles.
+
+```{r}
+gap_kmeans <- clusGap(coords, FUN = kmeans, nstart = 25, K.max = 10, B = 100)
+# Visualisation
+fviz_gap_stat(gap_kmeans)
+# Calcul de la silhouette pour évaluer la qualité du clustering
+silhouette_kmean <- silhouette(oiseau.kmeans$cluster, dist(coords))
+mean(silhouette_kmean[, 3])
+# Visualisation de la silhouette
+plot(silhouette_kmean, main = "Méthode de Silhouette")
+```
+
+On trouve une valeur moyenne en dessous de 0,5 ce qui est médiocre, de plus même pour le k choisie on obtient alors k = 3 comme le meilleur malgré que ce n'est pas présentatif du jeu de données.
+
+```{r}
+oiseau.kmeans = kmeans(coords, 3, nstart = 50)
+gpe_kmeans <- oiseau.kmeans$cluster
+table(gpe_kmeans, Espece)
+```
+
+On obtient pas réellement une meilleur répartion mais au moins on a une à une bonne identification pour les rapaces et les nageurs dans le même groupe comme ils ont des rapport proche pour leur os, tandis que on a bien indentifié le groupe des chanteurs.
+
+# Supression des valeurs aberrantes
+
+```{r}
+boxplot(DataCla)
+boxplot(DataStan)
+```
+
+## Transformation des données
+
+On trouve un nombre relativement important de valeurs aberrantes en particulier pour la largeur du tarse, on peut s'attendre cependant à ce que ce ne sont pas les mêmes individus donc ce qui peut perdre énormément d'individu.
+
+```{r}
+# On supprime les donnés au dessus du neuvième décile. 
+DataFilt <- bird |>
+  filter(
+    between(bird$huml, min(bird$huml), quantile(bird$huml, 0.90)),
+    between(bird$humw, min(bird$humw), quantile(bird$humw, 0.90)),
+    between(bird$ulnal, min(bird$ulnal), quantile(bird$ulnal, 0.90)),
+    between(bird$ulnaw, min(bird$ulnaw), quantile(bird$ulnaw, 0.90)),
+    between(bird$feml, min(bird$feml), quantile(bird$feml, 0.90)),
+    between(bird$femw, min(bird$femw), quantile(bird$femw, 0.90)),
+    between(bird$tibl, min(bird$tibl), quantile(bird$tibl, 0.90)),
+    between(bird$tibw, min(bird$tibw), quantile(bird$tibw, 0.90)),
+    between(bird$tarl, min(bird$tarl), quantile(bird$tarl, 0.90)),
+    between(bird$tarw, min(bird$tarw), quantile(bird$tarw, 0.90))
+  )
+EspeceFilt <- DataFilt[, 12]
+DataFilt <- DataFilt[, 2:11]
+```
+
+On perds cependant 89 individus, ce qui commence à représenter un nombre important.
+
+## Analyse en composante principale
+
+```{r}
+FiltStan <- scale(DataFilt)
+ACP <- PCA(FiltStan, graph = FALSE)
+plot(ACP, type = "l")
+coords <- ACP$ind$coord[, 1:3] # On prend les premières composantes de l'ACP
+fviz_eig(ACP, addlabels = TRUE, ylim = c(0, 50))
+```
+
+On va choisir de prendre les trois composantes même si on remarque surtout que c'est la première et la seconde qui sont significatives.
+
+## Classification ascendante
+
+```{r}
+CAH_ward <- hclust(dist(coords), method = "ward.D2")
+plot(CAH_ward)
+rect.hclust(CAH_ward, 6, border ="blue")
+gpe_ward <- cutree(CAH_ward, 6)
+DataFilt$gpe1 <- as.factor(gpe_ward)
+table(gpe_ward, EspeceFilt)
+fviz_cluster(list(data = coords, cluster = gpe_ward),
+             geom = "point",
+             ellipse.type = "convex",
+             palette = "Set2",
+             ggtheme = theme_minimal(),
+             main = "Visualisation des 6 clusters (Méthode Ward)")
+```
+
+On a remarque que l'on a une répartion similaire même si elle est moins bonne, on alors par exemple le groupe qui indentifie les chanteurs qui est beaucoup moins efficace de plus on perd le groupe qui identifie les rapaces, cependant on remarque que on le groupe des nageurs qui était répartie de manières equivalentes entrestout les groupes est maintenant plus rares et répaties sur seulement 3 groupes, cependant cette diffénrence n'est surement pas dû à une efficacié de la méthode mais peut être que je groupes des nageurs est particulièrement représenté dans les valeurs aberrantes.
+
+## K-means
+
+```{r}
+oiseau.kmeans = kmeans(coords, 6, nstart = 50)
+gpe_kmeans <- oiseau.kmeans$cluster
+DataFilt$gpe2 <- as.factor(gpe_kmeans)
+fviz_cluster(list(data = coords, cluster = gpe_kmeans),
+             geom = "point",
+             ellipse.type = "convex",
+             palette = "Set2",
+             ggtheme = theme_minimal(),
+             main = "Visualisation des 6 clusters (Méthode K-mean)")
+table(gpe_kmeans, EspeceFilt)
+```
+
+On voit que malgré les valeurs abérantes retirées on a toujours le même probléme de classifications.
+
+## PAM
+
+```{r}
+PAM <- pam(coords, k= 6)
+           
+# Visualisation du clustering PAM
+df_pam <- data.frame(coords, Cluster = as.factor(PAM$clustering))
+gpe_pam <- PAM$clustering
+DataFilt$gpe3 <- as.factor(gpe_pam)
+# 1. Table de contingence
+table(gpe_pam, EspeceFilt)
+fviz_cluster(list(data = coords, cluster = gpe_pam),
+             geom = "point",
+             ellipse.type = "convex",
+             palette = "Set2",
+             ggtheme = theme_minimal(),
+             main = "Visualisation des 6 clusters (Méthode PAM)")
+
+```
+
+Le groupe 1 et 2 attrapent en grande partie les nageurs, tandis que le 5 et le 6 attrapent les chanteurs, cependant les autres groupes ne sont pas bien représentés.
+
+## Profil
+
+```{r}
+inter1 <- catdes(DataFilt[,-c(12, 13)], num.var = 11)
+plot.catdes(inter1, cex.names = 0.7, barplot = T)
+inter2 <- catdes(DataFilt[,-c(11, 13)], num.var = 11)
+plot.catdes(inter2, cex.names = 0.7, barplot = T)
+inter3 <- catdes(DataFilt[,-c(11, 12)], num.var = 11)
+plot.catdes(inter3, cex.names = 0.7, barplot = T)
+```
+
+Pour la CAH : - Groupe 1 : Caractérisé par des os de tailles importantes.
+- Groupe 2 : Seulement caractérié par un fémur faiblement long.
+- Groupe 3 : Caractérisé par un ulna et un humérus de tailles relativement importantes et les autres os de tailles importantes.
+- Groupe 4 : Caractérisé par des os de tailles faibles.
+- Groupe 5 : Caractérisé par des os de tailles relativement importantes avec une plus grande taille de l'ulna et de l'humérus.
+- Groupe 6 : Caractérisé par des os relativement petits.
+
+On trouve des profils similaires pour les deux autres méthodes, on remarque comme seule différence que le groupe avec une seule caractéristique est soit donné avec deux caractéristiques soit 0, on peut alors supposer qu'il ne se différencie par réellement des autres.
+
+## Silouette
+
+```{r}
+gap_kmeans <- clusGap(coords, FUN = kmeans, nstart = 25, K.max = 10, B = 100)
+# Visualisation
+fviz_gap_stat(gap_kmeans)
+# Calcul de la silhouette pour évaluer la qualité du clustering
+silhouette_kmean <- silhouette(oiseau.kmeans$cluster, dist(coords))
+mean(silhouette_kmean[, 3])
+# Visualisation de la silhouette
+plot(silhouette_kmean, main = "Méthode de Silhouette")
+```
+
+On obtient encore 0.38 comme moyenne mais cette fois on aurait k = 2 comme nombre de cluster optimal.
+
+```{r}
+oiseau.kmeans = kmeans(coords, 2, nstart = 50)
+gpe_kmeans <- oiseau.kmeans$cluster
+table(gpe_kmeans, EspeceFilt)
+```
+
+On obtient le groupe 1 qui identifie bien les chanteurs, les pécheurs et les terrestres, tandis que le groupe 2 identifie les rapaces et les nageurs.
+Seuls les échassiers sont mal représenté.
+
+# Conclusion
+
+Au vu des résultats, nous avons montré qu'en examinant les profils des groupes recensés, nous obtenons une classification relativement satisfaisante, avec des différences marquées entre les caractéristiques.
+Cependant, nous rencontrons des difficultés pour identifier certains groupes, notamment ceux des nageurs et des terrestres.
+Il est possible que cette classification soit trop large pour les oiseaux et que les groupes issus du jeu de données ne correspondent pas exactement à de véritables espèces d'oiseaux.
+D'ailleurs, on constate que les meilleurs résultats sont obtenus pour des espèces bien définies, comme les oiseaux chanteurs et les rapaces.
+
+Néanmoins, en réduisant le nombre de groupes, nous avons observé qu'il est possible de regrouper plusieurs classes de manière relativement précise, grâce à la proximité des observations mises en évidence par l'Analyse en Composantes Principales (ACP).
+Toutefois, le principal défaut de cette approche est que la classification attribue plusieurs espèces à un même groupe.
+
+Une étude similaire pourrait être menée en enrichissant le jeu de données, par exemple en ajoutant des caractéristiques comme la forme du bec, le type de plumage, la forme du crâne ou encore la taille des griffes.
+En effet, lors des travaux dirigés, une étude comparable sur les dents de chien et de loup a montré qu'il est plus facile d'identifier des similitudes entre ces espèces que parmi les oiseaux.
+L'étude a donc probablement réussi à regrouper des oiseaux à la morphologie similaire, mais elle ne prend pas en compte des facteurs environnementaux tels que le milieu de vie, le type d'alimentation, etc.
